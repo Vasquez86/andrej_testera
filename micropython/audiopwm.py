@@ -17,7 +17,7 @@ _DEFAULT_CHUNK_SIZE = const(1024)
 
 
 class AudioPWM:
-    """Stream unsigned 8-bit PCM files over LEDC PWM."""
+    """Stream PCM files (8-bit unsigned or 16-bit signed) over LEDC PWM."""
 
     def __init__(
         self,
@@ -25,11 +25,34 @@ class AudioPWM:
         pwm_base_freq: int = 20_000,
         sample_rate: int = 8_000,
         chunk_size: int = _DEFAULT_CHUNK_SIZE,
+        sample_bits: int = 8,
+        signed: bool | None = None,
+        little_endian: bool = True,
     ) -> None:
         self._pin = Pin(pin, Pin.OUT)
         self._pwm = PWM(self._pin, freq=pwm_base_freq, duty_u16=0)
         self._sample_rate = sample_rate
-        self._chunk_size = max(128, int(chunk_size))
+        if sample_bits not in (8, 16):
+            raise ValueError("sample_bits must be 8 or 16")
+        self._sample_bits = sample_bits
+        if signed is None:
+            self._signed = self._sample_bits != 8
+        else:
+            self._signed = bool(signed)
+        self._little_endian = bool(little_endian)
+        self._bytes_per_sample = self._sample_bits // 8
+        self._max_value = (1 << self._sample_bits) - 1
+        self._midpoint = 1 << (self._sample_bits - 1)
+        self._duty_scale = 257 if self._sample_bits == 8 else 1
+        chunk = int(chunk_size)
+        if chunk < 128:
+            chunk = 128
+        remainder = chunk % self._bytes_per_sample
+        if remainder:
+            chunk += self._bytes_per_sample - remainder
+        if chunk < self._bytes_per_sample:
+            chunk = self._bytes_per_sample
+        self._chunk_size = chunk
         self._volume = 1.0
         self._file = None
         self._buffer = bytearray(self._chunk_size)
@@ -57,13 +80,9 @@ class AudioPWM:
         self._buf_len = 0
         self._buf_pos = 0
 
-        first = self._file.read(self._chunk_size)
-        if not first:
+        if not self._refill():
             self.stop()
             return False
-        self._buffer[: len(first)] = first
-        self._buf_len = len(first)
-        self._buf_pos = 0
 
         self._thread_id = _thread.start_new_thread(self._playback_loop, ())
         return True
@@ -97,10 +116,9 @@ class AudioPWM:
                 if self._buf_pos >= self._buf_len:
                     if not self._refill():
                         break
-                sample = self._buffer[self._buf_pos]
-                self._buf_pos += 1
-                sample = self._apply_volume(sample)
-                self._pwm.duty_u16(sample << 8)
+                sample = self._next_sample()
+                duty = self._apply_volume(sample)
+                self._pwm.duty_u16(duty)
 
                 while time.ticks_diff(next_tick, time.ticks_us()) > 0:
                     pass
@@ -118,16 +136,57 @@ class AudioPWM:
         if not data:
             return False
         data_len = len(data)
-        self._buffer[:data_len] = data
+        remainder = data_len % self._bytes_per_sample
+        if remainder:
+            data_len -= remainder
+            if data_len <= 0:
+                return False
+            self._buffer[:data_len] = data[:data_len]
+        else:
+            self._buffer[:data_len] = data
         self._buf_len = data_len
         self._buf_pos = 0
         return True
 
+    def _next_sample(self) -> int:
+        if self._bytes_per_sample == 1:
+            sample = self._buffer[self._buf_pos]
+            self._buf_pos += 1
+            if self._signed and sample >= 128:
+                sample -= 256
+            return sample
+
+        start = self._buf_pos
+        b0 = self._buffer[start]
+        b1 = self._buffer[start + 1]
+        self._buf_pos = start + 2
+        if self._little_endian:
+            value = b0 | (b1 << 8)
+        else:
+            value = (b0 << 8) | b1
+        if self._signed:
+            sign_bit = 1 << (self._sample_bits - 1)
+            mask = (1 << self._sample_bits) - 1
+            if value & sign_bit:
+                value = value - (mask + 1)
+        return value
+
     def _apply_volume(self, sample: int) -> int:
-        centered = (sample - 128) * self._volume
-        value = int(centered + 128)
+        if self._signed:
+            centered = sample * self._volume
+        else:
+            centered = (sample - self._midpoint) * self._volume
+
+        if centered >= 0:
+            centered = int(centered + 0.5)
+        else:
+            centered = int(centered - 0.5)
+
+        value = centered + self._midpoint
+
         if value < 0:
             value = 0
-        elif value > 255:
-            value = 255
-        return value
+        elif value > self._max_value:
+            value = self._max_value
+
+        return value * self._duty_scale
