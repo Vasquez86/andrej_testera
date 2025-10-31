@@ -1,6 +1,7 @@
-# ESP32-C3 PWM Audio Playback
+# ESP32-C3 MicroPython PWM Audio Playback
 
-Two minimal runtimes for playing unsigned 8-bit PCM RAW clips stored on the ESP32-C3 SuperMini flash. Audio is generated with the LEDC PWM peripheral and a simple RC low-pass filter so it can be amplified and sent to a small speaker.
+MicroPython utilities for playing unsigned 8-bit PCM RAW clips on the ESP32-C3 SuperMini. Audio is generated with the LEDC PWM
+peripheral and a simple RC low-pass filter so it can be amplified and sent to a small speaker.
 
 ## Hardware quick reference
 
@@ -9,55 +10,13 @@ Two minimal runtimes for playing unsigned 8-bit PCM RAW clips stored on the ESP3
 - Drive an external amplifier (LM386/TDA1308/transistor stage) before the speaker.
 - Audio format: **Mono, unsigned 8-bit PCM, RAW header-less**. Default rate 8 kHz (11_025/16_000 Hz also work).
 
-## Arduino (C++ / LittleFS)
+## Project layout
 
-Files are located under [`arduino/`](arduino/):
+- [`micropython/audiopwm.py`](micropython/audiopwm.py): LEDC-based audio player.
+- [`micropython/main.py`](micropython/main.py): example entrypoint that plays `/testera.raw` on boot.
+- [`testera.raw`](testera.raw): sample unsigned 8-bit PCM clip for quick testing.
 
-- [`AudioPWM.h`](arduino/AudioPWM.h) / [`AudioPWM.cpp`](arduino/AudioPWM.cpp): LEDC based player implementation.
-- [`examples/BasicPlayback/BasicPlayback.ino`](arduino/examples/BasicPlayback/BasicPlayback.ino): minimal usage example.
-- [`examples/TesteraPlayback/TesteraPlayback.ino`](arduino/examples/TesteraPlayback/TesteraPlayback.ino): auto plays `/testera.raw`,
-  then enters deep sleep and wakes when **GPIO4** is pulled high.
-
-### API
-
-```cpp
-namespace AudioPWM {
-  bool begin(int audioPin = 2, int pwmBaseFreq = 20000, int pwmResBits = 8);
-  bool setSampleRate(uint32_t hz);
-  void setVolume(float gain01);
-  bool playFile(const char* littlefsPath);
-  bool isPlaying();
-  void stop();
-}
-```
-
-### Features
-
-- Uses LEDC PWM (quasi-DAC) driven by an `esp_timer` interrupt for precise sample timing.
-- Streams from LittleFS using a ring buffer with a background reader task.
-- Volume scaling (0.0–1.0), graceful stop, and non-blocking status checks.
-- Configurable compile-time buffer size via `AUDIOPWM_CHUNK_SIZE` and `AUDIOPWM_RING_BUFFERS` macros.
-
-### Getting started
-
-1. Install **Arduino Core for ESP32** v2.0+ with ESP32-C3 support.
-2. Add the LittleFS data upload plugin and place your RAW files in the data folder (e.g., `/chainsaw.pcm`, `/laugh.pcm`).
-3. Upload the filesystem and the sketch from `examples/BasicPlayback`.
-4. Optionally adjust `AUDIO_PIN`, `PWM_BASE_FREQ`, `SAMPLE_RATE_HZ`, and `PWM_RES_BITS` when calling `AudioPWM::begin` / `setSampleRate`.
-
-### Deep-sleep auto playback
-
-`examples/TesteraPlayback/TesteraPlayback.ino` demonstrates how to:
-
-1. Play `/testera.raw` (unsigned 8-bit PCM RAW) out of the box on boot using **GPIO2** as the PWM audio pin.
-2. Enter deep sleep immediately after playback.
-3. Wake up again when **GPIO4** sees a high level (e.g. touch 5 V through a resistor divider), replay the clip, and return to deep sleep.
-
-Upload `testera.raw` to the LittleFS data folder before flashing the sketch. Add an RC low-pass filter on GPIO2 and feed the filtered signal into an amplifier before the speaker.
-
-## MicroPython
-
-The MicroPython player lives in [`micropython/audiopwm.py`](micropython/audiopwm.py).
+## Using the player
 
 ```python
 from audiopwm import AudioPWM
@@ -82,8 +41,9 @@ while player.is_playing():
 ### Deployment
 
 1. Flash a recent ESP32-C3 MicroPython firmware.
-2. Copy `audiopwm.py` and your PCM files (`chainsaw.pcm`, `laugh.pcm`, …) to the device root using `mpremote`, Thonny, etc.
-3. Run the example snippet (e.g., inside `main.py`).
+2. Copy `audiopwm.py`, `main.py`, and your PCM files (`chainsaw.pcm`, `laugh.pcm`, …) to the device root using `mpremote`, Thonny, etc.
+3. Adjust `PLAYER_PIN`, `PWM_BASE_FREQ`, `SAMPLE_RATE`, and `CLIP_PATH` in `main.py` if desired.
+4. Reset the board or run `main.py` manually to begin playback.
 
 ## Preparing PCM RAW clips
 
@@ -94,4 +54,4 @@ In Audacity:
 3. Export as **Other uncompressed files** → *Header*: `RAW (header-less)`, *Encoding*: `Unsigned 8-bit PCM`.
 4. Name the files `chainsaw.pcm`, `laugh.pcm`, etc., and upload them to the device filesystem.
 
-Enjoy PWM-powered sound on the ESP32-C3 SuperMini!
+Enjoy PWM-powered sound on the ESP32-C3 SuperMini — now entirely in MicroPython!
