@@ -15,6 +15,8 @@ Files are located under [`arduino/`](arduino/):
 
 - [`AudioPWM.h`](arduino/AudioPWM.h) / [`AudioPWM.cpp`](arduino/AudioPWM.cpp): LEDC based player implementation.
 - [`examples/BasicPlayback/BasicPlayback.ino`](arduino/examples/BasicPlayback/BasicPlayback.ino): minimal usage example.
+- [`examples/TesteraPlayback/TesteraPlayback.ino`](arduino/examples/TesteraPlayback/TesteraPlayback.ino): auto plays `/testera.raw`,
+  then enters deep sleep and wakes when **GPIO4** is pulled high.
 
 ### API
 
@@ -42,6 +44,16 @@ namespace AudioPWM {
 2. Add the LittleFS data upload plugin and place your RAW files in the data folder (e.g., `/chainsaw.pcm`, `/laugh.pcm`).
 3. Upload the filesystem and the sketch from `examples/BasicPlayback`.
 4. Optionally adjust `AUDIO_PIN`, `PWM_BASE_FREQ`, `SAMPLE_RATE_HZ`, and `PWM_RES_BITS` when calling `AudioPWM::begin` / `setSampleRate`.
+
+### Deep-sleep auto playback
+
+`examples/TesteraPlayback/TesteraPlayback.ino` demonstrates how to:
+
+1. Play `/testera.raw` (unsigned 8-bit PCM RAW) out of the box on boot using **GPIO2** as the PWM audio pin.
+2. Enter deep sleep immediately after playback.
+3. Wake up again when **GPIO4** sees a high level (e.g. touch 5 V through a resistor divider), replay the clip, and return to deep sleep.
+
+Upload `testera.raw` to the LittleFS data folder before flashing the sketch. Add an RC low-pass filter on GPIO2 and feed the filtered signal into an amplifier before the speaker.
 
 ## MicroPython
 
